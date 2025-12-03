@@ -1,0 +1,99 @@
+// --- 1. Import Data ---
+var das_boundaries = ee.FeatureCollection('projects/banjir-sumatera-479906/assets/Batas_DAS_KLHK');
+
+// --- 2. Filter Berdasarkan Kode Provinsi ---
+// Aceh=11, Sumut=12, Sumbar=13
+// Kita filter agar hanya mengambil data yang kode_prov-nya ada di list [11, 12, 13]
+var sumatera_focus = das_boundaries.filter(ee.Filter.inList('kode_prov', [11, 12, 13]));
+
+// --- 3. Visualisasi Peta (Color Coded) ---
+// Kita buat image background kosong, lalu "cat" (paint) berdasarkan kode provinsi
+// Aceh (11) = Merah, Sumut (12) = Hijau, Sumbar (13) = Biru
+var image_painted = ee.Image().paint({
+  featureCollection: sumatera_focus,
+  color: 'kode_prov', // Mewarnai berdasarkan nilai kolom ini
+  width: 2
+});
+
+var vis_params = {
+  palette: ['FF0000', '00FF00', '0000FF'], // Urutan warna: Merah (11), Hijau (12), Biru (13)
+  min: 11, // Nilai terendah (Aceh)
+  max: 13  // Nilai tertinggi (Sumbar)
+};
+
+Map.centerObject(sumatera_focus, 7);
+Map.addLayer(image_painted, vis_params, 'Wilayah DAS (11, 12, 13)');
+
+
+// --- 4. MEMBUAT DASHBOARD INFO (UI PANEL) ---
+// Membuat panel di pojok kanan bawah untuk menampilkan Nama DAS
+var panel = ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px 15px',
+    width: '300px'
+  }
+});
+
+// Judul Panel
+var title = ui.Label({
+  value: 'Informasi DAS Terpilih',
+  style: {fontWeight: 'bold', fontSize: '16px', margin: '0 0 4px 0'}
+});
+
+// Instruksi awal
+var inspector = ui.Label({
+  value: 'Klik pada area peta untuk melihat Nama DAS...',
+  style: {color: 'gray'}
+});
+
+panel.add(title);
+panel.add(inspector);
+Map.add(panel);
+
+// --- 5. INTERAKSI KLIK (Agar Nama Muncul) ---
+Map.onClick(function(coords) {
+  // Tampilkan tulisan "Loading..." saat proses klik
+  inspector.setValue('Sedang memuat...');
+  
+  // Buat titik dari koordinat yang diklik
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  
+  // Cari DAS yang berpotongan dengan titik tersebut
+  var selected_das = sumatera_focus.filterBounds(point).first();
+  
+  // Ambil Nama DAS dan Kode Provinsi dari fitur yang terpilih
+  selected_das.evaluate(function(feature) {
+    if (feature) {
+      var nama = feature.properties.nama_das;
+      var kode = feature.properties.kode_prov;
+      var provName = '';
+      
+      if (kode == 11) provName = 'Aceh';
+      else if (kode == 12) provName = 'Sumatera Utara';
+      else if (kode == 13) provName = 'Sumatera Barat';
+      
+      // Update tulisan di Panel
+      inspector.setValue('DAS: ' + nama + '\nProvinsi: ' + provName + ' (' + kode + ')');
+      
+      // Highlight batas DAS yang dipilih dengan warna Kuning tebal
+      var highlight = ee.Feature(feature);
+      var highlightLayer = ui.Map.Layer(highlight.style({color: 'yellow', width: 4, fillColor: '00000000'}), {}, 'Highlight');
+      
+      // Hapus highlight sebelumnya (jika ada) dan tambahkan yang baru
+      var layers = Map.layers();
+      // Layer index 1 biasanya untuk highlight (layer 0 adalah peta dasar DAS)
+      if (layers.length() > 1) {
+        layers.set(1, highlightLayer);
+      } else {
+        layers.add(highlightLayer);
+      }
+      
+    } else {
+      inspector.setValue('Tidak ada DAS di lokasi ini (Cek batas wilayah).');
+    }
+  });
+});
+
+// Ubah kursor menjadi tanda silang agar user tahu bisa diklik
+Map.style().set('cursor', 'crosshair');
